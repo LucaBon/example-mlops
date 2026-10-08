@@ -35,7 +35,7 @@ ML_PACKAGES = ['pandas==1.4.2', 'scikit-learn==1.0.2', 'mlflow==1.24.0',
 
 DEFAULT_ARGUMENTS = {
     'repo_url': 'https://github.com/LucaBon/washingmachine-mlops.git',
-    'filename': 'signal_cycles_train_win_60_data.csv',
+    'filename': 'wm_cycles_win60.csv',
 }
 
 

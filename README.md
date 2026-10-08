@@ -37,6 +37,7 @@ The registry's Production stage only changes after Seldon reports the deployment
 | --- | --- |
 | `pipeline.py` | Pipeline definition and CLI (`compile`, `run`, `schedule`) |
 | `components/` | Lightweight components (`load_data`, `preprocess`, `train`, `evaluate`, `promote`) and the `deploy` container component |
+| `data_prep/build_dataset.py` | Builds the windowed training CSV from the raw SMART-PDM recordings |
 | `serving/predict.py` | Client for the deployed model (Seldon v1 protocol) |
 | `serving/drift.py` | Feature drift check (KS test + PSI) between reference and recent data |
 | `k8s/` | RBAC so pipeline steps can create SeldonDeployments |
@@ -54,6 +55,44 @@ Kubeflow with MLflow (`mlflow-server.kubeflow:5000`), MinIO and Seldon Core v1.
    (keys `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) in the user namespace. With
    the default `dvc_remote=minio`, `load_data` uses the existing
    `mlpipeline-minio-artifact` secret.
+
+## Dataset
+
+The model is trained on the washing machine recordings of the SMART-PDM Appliance
+Dataset: T. Fonseca, L.L. Ferreira, P. Chaves, B. Cabral, P. Costa, "SMART-PDM
+Appliance Dataset", Zenodo, 2022,
+[doi:10.5281/zenodo.7245198](https://doi.org/10.5281/zenodo.7245198), described in
+T. Fonseca et al., "Dataset for identifying maintenance needs of home appliances using
+artificial intelligence", Data in Brief 48 (2023) 109068,
+[doi:10.1016/j.dib.2023.109068](https://doi.org/10.1016/j.dib.2023.109068). It is
+licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The derived
+`wm_cycles_win60.csv` falls under the same license: keep the attribution in
+[DATA_LICENSE.md](DATA_LICENSE.md) wherever you share it or data built from it.
+
+Each row is a 60 s window, taken every 10 s, of one washing cycle. `target` is the
+cycle's label (`Working`, `Heating`, `Bearings` or `Motor`). `TIMESTAMP` (cycle start
+from the metadata plus the window end in seconds), `DateTime`, `cycle_id`, `brand` and
+`model` are metadata. All other columns are statistics and spectral band shares of the
+2048 Hz current and vibration signals (`fast.csv`).
+
+The 1 Hz power meter (`slow.csv`) is left out by default: its clock does not match
+the fast recording, and in every Motor cycle it reads zero power, so a model would
+learn a recording artifact. Cycles are skipped, with the reason printed, when they
+have no label, less than one window of fast data, fast signals in volts instead of
+ADC counts (three December 2021 cycles), or a `fast.csv` identical to another
+cycle's. The current build keeps 83 of 96 cycles.
+
+To rebuild it, download the dataset from the Zenodo record above, unpack it (about
+22 GB) and run:
+
+```
+python -m data_prep.build_dataset /path/to/SMART-PDM-Dataset/2-washing_machines wm_cycles_win60.csv
+```
+
+Options: `--window` and `--stride` in seconds, `--workers` (default: CPUs - 1) and
+`--with-slow` (add power meter features). The docstring of `data_prep/build_dataset.py`
+explains how the two sensor streams are aligned. Then `dvc add` and `dvc push` the
+file as shown below.
 
 ## Data storage
 
@@ -83,11 +122,11 @@ exist before the first push.
 To publish a new version of the data:
 
 ```
-cp /path/to/data/signal_cycles_train_win_60_data.csv .
-dvc add signal_cycles_train_win_60_data.csv
+python -m data_prep.build_dataset /path/to/2-washing_machines wm_cycles_win60.csv
+dvc add wm_cycles_win60.csv
 dvc push                     # local remote
 dvc push -r minio            # what the pipeline reads by default
-git add signal_cycles_train_win_60_data.csv.dvc && git commit -m "data: ..." && git push
+git add wm_cycles_win60.csv.dvc && git commit -m "data: ..." && git push
 ```
 
 Pipeline pods clone `repo_url` and read the `.dvc` file from its default branch, so the
