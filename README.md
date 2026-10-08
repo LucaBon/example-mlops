@@ -167,8 +167,9 @@ dvc push -r minio            # what the pipeline reads by default
 git add wm_cycles_win60.csv.dvc && git commit -m "data: ..." && git push
 ```
 
-Pipeline pods clone `repo_url` and read the `.dvc` file from its default branch, so the
-`.dvc` change must be pushed. The `local` remote can't be reached from the cluster.
+Pipeline pods clone `repo_url` and read the `.dvc` file at `data_rev` (a branch, tag or
+commit; empty means the default branch), so the `.dvc` change must be pushed. Pin
+`data_rev` to a tag or commit to make a run reproducible. The `local` remote can't be reached from the cluster.
 
 ## Build the deploy component image
 
@@ -195,7 +196,7 @@ python pipeline.py schedule --host <KFP_URL> --cron "0 0 3 * * 1"   # weekly ret
 ```
 
 You can also upload `generated/washing_machine-pipeline.yaml` through the UI. Its parameters are
-`repo_url`, `filename`, `dvc_remote` (`minio` or `s3`), `test_size`, `n_estimators`, `max_depth`
+`repo_url`, `filename`, `dvc_remote` (`minio` or `s3`), `data_rev`, `test_size`, `n_estimators`, `max_depth`
 (0 = unlimited), `random_state`, `cv_folds`, `cv_repeats`, `class_weight` (empty or
 `balanced`), `min_f1_macro`, `min_class_recall`, `min_improvement`, `min_prob_better`,
 `namespace` and `deployment_name`.
