@@ -6,9 +6,13 @@ from pathlib import Path
 
 import kfp
 from kfp import dsl
-from kfp.aws import use_aws_secret
 from kfp.onprem import use_k8s_secret
-from kubernetes.client.models import V1EnvVar, V1LocalObjectReference
+from kubernetes.client.models import (
+    V1EnvVar,
+    V1EnvVarSource,
+    V1LocalObjectReference,
+    V1SecretKeySelector,
+)
 
 from components.evaluate import evaluate
 from components.load_data import get_data_from_dvc
@@ -45,13 +49,26 @@ def _component(func, name, packages):
         packages_to_install=packages)
 
 
-load_data_op = _component(get_data_from_dvc, 'load_data', ['dvc', 'dvc-s3'])
+# pathspec is pinned because newer releases break dvc 3.51
+load_data_op = _component(get_data_from_dvc, 'load_data',
+                          ['dvc==3.51.2', 'dvc-s3==3.2.0', 'pathspec==0.12.1'])
 preprocess_op = _component(preprocess, 'preprocess', ['pandas==1.4.2'])
 training_op = _component(train, 'train', ML_PACKAGES)
 evaluate_op = _component(evaluate, 'evaluate', ML_PACKAGES)
 promote_op = _component(promote, 'promote', ML_PACKAGES)
 deploy_op = kfp.components.load_component_from_file(
     os.path.join(PROJECT_ROOT, 'components', 'deploy', 'component.yaml'))
+
+
+def use_optional_secret(secret_name, key_to_env):
+    """Expose secret keys as env vars; the pod still starts if the secret is missing."""
+    def _apply(task):
+        for key, env in key_to_env.items():
+            task.add_env_variable(V1EnvVar(name=env, value_from=V1EnvVarSource(
+                secret_key_ref=V1SecretKeySelector(name=secret_name, key=key,
+                                                   optional=True))))
+        return task
+    return _apply
 
 
 def with_mlflow_env(task):
@@ -76,28 +93,41 @@ def with_mlflow_env(task):
 def washing_machine_pipeline(
         repo_url: str = DEFAULT_ARGUMENTS['repo_url'],
         filename: str = DEFAULT_ARGUMENTS['filename'],
-        test_size: float = 0.33,
+        dvc_remote: str = 'minio',
+        val_size: float = 0.2,
+        test_size: float = 0.2,
+        gap: int = 60,
         n_estimators: int = 300,
         max_depth: int = 0,
         random_state: int = 42,
-        min_accuracy: float = 0.8,
+        min_f1_macro: float = 0.8,
+        min_class_recall: float = 0.5,
+        min_improvement: float = 0.0,
+        min_prob_better: float = 0.9,
         namespace: str = 'kubeflow-user-example-com',
         deployment_name: str = 'washing-machine'):
     # The deploy component image is private on ghcr.io
     dsl.get_pipeline_conf().set_image_pull_secrets(
         [V1LocalObjectReference(name=IMAGE_PULL_SECRET)])
 
-    load_data_task = load_data_op(repo_url, filename).apply(
-        use_aws_secret(secret_name='aws-secret',
-                       aws_access_key_id_name='AWS_ACCESS_KEY_ID',
-                       aws_secret_access_key_name='AWS_SECRET_ACCESS_KEY',
-                       aws_region='eu-south-1'))
+    # Credentials for whichever DVC remote is selected: MinIO from the KFP
+    # artifact secret, AWS from aws-secret (only needed for dvc_remote=s3)
+    load_data_task = (load_data_op(repo_url, filename, dvc_remote)
+                      .apply(use_optional_secret('mlpipeline-minio-artifact', {
+                          'accesskey': 'MINIO_ACCESS_KEY_ID',
+                          'secretkey': 'MINIO_SECRET_ACCESS_KEY'}))
+                      .apply(use_optional_secret('aws-secret', {
+                          'AWS_ACCESS_KEY_ID': 'AWS_ACCESS_KEY_ID',
+                          'AWS_SECRET_ACCESS_KEY': 'AWS_SECRET_ACCESS_KEY'})))
 
     preprocess_task = preprocess_op(file=load_data_task.outputs['data'],
-                                    test_size=test_size)
+                                    val_size=val_size,
+                                    test_size=test_size,
+                                    gap=gap)
 
     train_task = with_mlflow_env(training_op(
         train=preprocess_task.outputs['train'],
+        val=preprocess_task.outputs['val'],
         n_estimators=n_estimators,
         max_depth=max_depth,
         random_state=random_state))
@@ -106,7 +136,11 @@ def washing_machine_pipeline(
         test=preprocess_task.outputs['test'],
         run_id=train_task.outputs['run_id'],
         model_version=train_task.outputs['model_version'],
-        min_accuracy=min_accuracy))
+        min_f1_macro=min_f1_macro,
+        min_class_recall=min_class_recall,
+        min_improvement=min_improvement,
+        min_prob_better=min_prob_better,
+        block_size=gap))
 
     with dsl.Condition(evaluate_task.outputs['decision'] == 'deploy'):
         deploy_task = deploy_op(model_uri=train_task.outputs['model_uri'],
