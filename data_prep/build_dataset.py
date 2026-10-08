@@ -3,7 +3,8 @@
 Each cycle folder ``<begin>_<end>`` holds ``slow.csv`` (1 Hz power meter) and
 ``fast.csv`` (2048 Hz current and vibration). The output has one row per
 sliding window of ``window`` seconds, every ``stride`` seconds, for each cycle
-with a label in ``washing_machine_metadata.csv``.
+with a label in ``washing_machine_metadata.csv``. ``TIMESTAMP`` is the exclusive
+window end in unix seconds: the window covers ``[TIMESTAMP - window, TIMESTAMP)``.
 
     python -m data_prep.build_dataset <raw_dir> <out_csv> [--window 60] [--stride 10]
         [--workers N] [--with-slow]
@@ -13,9 +14,10 @@ below) and in the Motor cycles it only shows an idle meter, which would teach a
 model a recording artifact. ``--with-slow`` adds the slow features.
 
 Cycles are skipped, with the reason printed, when they have no label, a
-fast.csv shorter than one window, fast signals that are not ADC counts, or a
-fast.csv byte-identical to another cycle's (all copies are dropped when their
-labels differ, otherwise one is kept).
+missing or unreadable fast.csv (or slow.csv with ``--with-slow``), a fast.csv
+shorter than one window, missing values or signals that are not ADC counts in
+fast.csv, or a fast.csv byte-identical to another cycle's (all copies are
+dropped when their labels differ, otherwise one is kept).
 
 How fast.csv lines up with slow.csv (checked on all 96 cycles):
 
@@ -52,8 +54,9 @@ METADATA_FILE = 'washing_machine_metadata.csv'
 METADATA_COLUMNS = ['begin_end', 'timestamp_begin', 'timestamp_end', 'brand', 'model',
                     'program', 'temperature', 'spin', 'load', 'failure']
 META_COLUMNS = ['TIMESTAMP', 'DateTime', 'target', 'cycle_id', 'brand', 'model']
-# ActE is a cumulative energy counter (identifies the meter and the time), Fr the grid frequency
-SLOW_SIGNALS = ['ActP', 'RctP', 'AppP', 'PF', 'V', 'A']
+# ActE is a cumulative energy counter (identifies the meter and the time); Fr and V
+# describe the grid, not the machine
+SLOW_SIGNALS = ['ActP', 'RctP', 'AppP', 'PF', 'A']
 FAST_SIGNALS = ['Current', 'Vibration']
 FAST_RATE = 2048
 # Roughly log-spaced spectral bands in Hz; the last one ends at Nyquist
@@ -72,7 +75,7 @@ def load_metadata(raw_dir):
 
 
 def slow_features(slow, window=60, stride=10):
-    """Rolling mean/std/min/max of the slow signals, indexed by window end (unix s).
+    """Rolling mean/std/min/max of the slow signals, indexed by the last covered Ts.
 
     Windows end at ``first Ts + window - 1 + k * stride``; windows with fewer
     than ``MIN_SLOW_COVERAGE`` of their seconds present are dropped.
@@ -90,8 +93,12 @@ def slow_features(slow, window=60, stride=10):
 
 
 def _second_stats(block):
-    """Moment sums, extremes and band powers of each row (one second) of ``block``."""
-    spectrum = np.abs(np.fft.rfft(block - block.mean(axis=1, keepdims=True), axis=1)) ** 2
+    """Moment sums, extremes and band powers of each row (one second) of ``block``.
+
+    Each second is Hann-tapered before the FFT to limit spectral leakage.
+    """
+    tapered = (block - block.mean(axis=1, keepdims=True)) * np.hanning(FAST_RATE)
+    spectrum = np.abs(np.fft.rfft(tapered, axis=1)) ** 2
     freqs = np.fft.rfftfreq(FAST_RATE, 1 / FAST_RATE)
     stats = {f's{k}': (block ** k).sum(axis=1) for k in (1, 2, 3, 4)}
     stats.update(min=block.min(axis=1), max=block.max(axis=1))
@@ -113,6 +120,8 @@ def fast_seconds(fast_csv, chunk_seconds=256):
     parts, center = [], None
     for chunk in reader:
         values = chunk[FAST_SIGNALS].values
+        if np.isnan(values).any():
+            raise ValueError('missing values in fast.csv')
         if not np.array_equal(values, np.round(values)):
             raise ValueError('fast.csv signals are not integer ADC counts')
         n_sec = len(values) // FAST_RATE
@@ -134,20 +143,18 @@ def fast_seconds(fast_csv, chunk_seconds=256):
 def fast_features(seconds, window=60):
     """Window features from ``fast_seconds`` output, indexed by the window's last second.
 
-    ``<sig>_rms`` is taken around the cycle's DC level (median of the
-    per-second means), ``_kurtosis`` is the excess kurtosis and ``_band*``
-    are the shares of the spectral energy in ``BAND_EDGES``.
+    ``_kurtosis`` is the excess kurtosis (0 for a flat signal) and ``_band*``
+    are the shares of the spectral energy in ``BAND_EDGES``. Each window only
+    uses its own samples.
     """
     n = window * FAST_RATE
     sums = seconds.rolling(window).sum()
     features = {}
     for sig in FAST_SIGNALS:
         m1, m2, m3, m4 = (sums[f'{sig}_s{k}'] / n for k in (1, 2, 3, 4))
-        var = m2 - m1 ** 2
-        central4 = m4 - 4 * m1 * m3 + 6 * m1 ** 2 * m2 - 3 * m1 ** 4
-        dc = (seconds[f'{sig}_s1'] / FAST_RATE).median()
-        features[f'{sig}_rms'] = np.sqrt(m2 - 2 * dc * m1 + dc ** 2)
-        features[f'{sig}_std'] = np.sqrt(var.clip(lower=0) * n / (n - 1))
+        var = (m2 - m1 ** 2).clip(lower=0)
+        central4 = (m4 - 4 * m1 * m3 + 6 * m1 ** 2 * m2 - 3 * m1 ** 4).clip(lower=0)
+        features[f'{sig}_std'] = np.sqrt(var * n / (n - 1))
         features[f'{sig}_p2p'] = (seconds[f'{sig}_max'].rolling(window).max()
                                   - seconds[f'{sig}_min'].rolling(window).min())
         # A flat signal has no defined kurtosis or spectrum: report 0
@@ -194,10 +201,12 @@ def build_cycle(cycle_dir, labels, window=60, stride=10, with_slow=False):
     """Windowed rows of one cycle folder.
 
     ``labels`` holds failure, brand, model and timestamp_begin. Windows are cut
-    on the fast time axis and ``TIMESTAMP`` is ``timestamp_begin`` plus the
-    window end in seconds; the real fast start time is unknown, so it is only
-    nominal. ``with_slow`` adds the slow features of the aligned slow windows
-    and then uses their ``Ts``. Raises ``ValueError`` when the cycle is unusable.
+    on the fast time axis. ``TIMESTAMP`` is the exclusive window end in unix
+    seconds: the window covers ``[TIMESTAMP - window, TIMESTAMP)``. Fast-only, it
+    is ``timestamp_begin`` plus the window end on the fast axis; the real fast
+    start time is unknown, so it is only nominal. ``with_slow`` adds the slow
+    features of the aligned slow windows and then follows their ``Ts`` (last
+    covered second + 1). Raises ``ValueError`` when the cycle is unusable.
     """
     cycle_id = os.path.basename(os.path.normpath(cycle_dir))
     seconds = fast_seconds(os.path.join(cycle_dir, 'fast.csv'))
@@ -207,12 +216,13 @@ def build_cycle(cycle_dir, labels, window=60, stride=10, with_slow=False):
     info = ''
     if with_slow:
         slow = pd.read_csv(os.path.join(cycle_dir, 'slow.csv'), usecols=['Ts'] + SLOW_SIGNALS)
-        offset, corr = align_offset(slow, seconds)
+        offset, corr = align_offset(slow, seconds, min_overlap=2 * window)
         if not corr >= MIN_ALIGN_CORR:
             offset = 0
         # Fast second k is slow Ts = first Ts + offset + k
         features.index = features.index + int(slow['Ts'].min()) + offset
         features = slow_features(slow, window, stride).join(features, how='inner')
+        features.index = features.index + 1
         info = f', fast offset {offset:+d} s (corr {corr:.2f})'
     else:
         features = features.iloc[::stride]
@@ -235,7 +245,7 @@ def build_cycle(cycle_dir, labels, window=60, stride=10, with_slow=False):
 def _build_task(args):
     try:
         return build_cycle(*args), None
-    except ValueError as err:
+    except (ValueError, OSError) as err:
         return args[0], str(err)
 
 
@@ -262,8 +272,15 @@ def duplicate_fast_files(raw_dir, folders):
 def build_dataset(raw_dir, out_csv, window=60, stride=10, workers=None, with_slow=False):
     meta = load_metadata(raw_dir).set_index('begin_end')
     folders = sorted(d for d in os.listdir(raw_dir) if os.path.isdir(os.path.join(raw_dir, d)))
-    skipped = {d: 'no label in the metadata' for d in folders if d not in meta.index}
-    folders = [d for d in folders if d in meta.index]
+    required = ['fast.csv', 'slow.csv'] if with_slow else ['fast.csv']
+    skipped = {}
+    for d in folders:
+        missing = [f for f in required if not os.path.isfile(os.path.join(raw_dir, d, f))]
+        if d not in meta.index:
+            skipped[d] = 'no label in the metadata'
+        elif missing:
+            skipped[d] = f'missing {", ".join(missing)}'
+    folders = [d for d in folders if d not in skipped]
     for group in duplicate_fast_files(raw_dir, folders):
         if meta.loc[group, 'failure'].nunique() > 1:
             for d in group:
@@ -273,33 +290,52 @@ def build_dataset(raw_dir, out_csv, window=60, stride=10, workers=None, with_slo
                 skipped[d] = f'fast.csv identical to {group[0]}'
     tasks = [(os.path.join(raw_dir, d), meta.loc[d].to_dict(), window, stride, with_slow)
              for d in folders if d not in skipped]
+    if with_slow:
+        print('WARNING: slow.csv features carry recording artifacts (the meter reads zero '
+              'power in every Motor cycle) and are often misaligned with fast.csv')
     workers = workers or max(1, cpu_count() - 1)
     started = time.time()
     parts = []
-    with Pool(max(1, min(workers, len(tasks)))) as pool:
+    if not tasks:
+        raise ValueError(f'No usable cycle in {raw_dir}')
+    with Pool(min(workers, len(tasks))) as pool:
         for rows, reason in pool.imap_unordered(_build_task, tasks):
             if reason is None:
                 parts.append(rows)
             else:
                 skipped[os.path.basename(rows)] = reason
                 print(f'{os.path.basename(rows)}: skipped, {reason}', flush=True)
-    df = pd.concat(parts, ignore_index=True).sort_values(['cycle_id', 'TIMESTAMP'])
-    df.to_csv(out_csv, index=False, float_format='%.6g')
     print(f'Skipped {len(skipped)} folders:')
     for d, reason in sorted(skipped.items()):
         print(f'  {d}: {reason}')
+    if not parts:
+        raise ValueError(f'No cycle in {raw_dir} produced a window')
+    df = pd.concat(parts, ignore_index=True).sort_values(['cycle_id', 'TIMESTAMP'])
+    nan_cols = df.columns[df.isna().any()].tolist()
+    if nan_cols:
+        raise ValueError(f'NaN values in {nan_cols}')
+    df.to_csv(out_csv, index=False, float_format='%.6g')
     print(f'Wrote {out_csv}: {df.shape[0]} rows, {df.shape[1]} columns, '
           f'{df["cycle_id"].nunique()} cycles in {time.time() - started:.0f} s')
     print(df.groupby('target')['cycle_id'].nunique().to_string())
     return df
 
 
+def _positive_int(text):
+    value = int(text)
+    if value <= 0:
+        raise argparse.ArgumentTypeError(f'must be > 0, got {value}')
+    return value
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Build the windowed washing machine dataset')
     parser.add_argument('raw_dir', help='folder with the cycle folders and the metadata CSV')
     parser.add_argument('out_csv')
-    parser.add_argument('--window', type=int, default=60, help='window length in seconds')
-    parser.add_argument('--stride', type=int, default=10, help='seconds between windows')
+    parser.add_argument('--window', type=_positive_int, default=60,
+                        help='window length in seconds')
+    parser.add_argument('--stride', type=_positive_int, default=10,
+                        help='seconds between windows')
     parser.add_argument('--workers', type=int, help='processes (default: CPUs - 1)')
     parser.add_argument('--with-slow', action='store_true',
                         help='add slow.csv features, aligned to the fast windows')

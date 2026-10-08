@@ -21,13 +21,14 @@ The original authors do not endorse this project or the derived data.
   cycle label (`failure`), `brand`, `model` and start time (`timestamp_begin`) are used.
 - Each cycle is cut into sliding windows (60 s long, every 10 s). Per window the CSV
   holds statistics and spectral band shares of the `fast.csv` signals (`Current`,
-  `Vibration`). `TIMESTAMP` is the cycle start from the metadata plus the window end.
+  `Vibration`). `TIMESTAMP` is the cycle start from the metadata plus the (exclusive)
+  window end.
   `slow.csv` is not used by default; with the `--with-slow` option its summary
   statistics are added and the two recordings are time-aligned per cycle as
   described in `data_prep/build_dataset.py`.
-- Cycles are left out for quality reasons: no label in the metadata, a `fast.csv`
-  shorter than one window (most December 2021 cycles and one empty file), `fast.csv`
-  signals in volts instead of ADC counts (three December 2021 cycles), or a
+- Cycles are left out for quality reasons: no label in the metadata, a missing or
+  unreadable `fast.csv`, a `fast.csv` shorter than one window (most December 2021
+  cycles and one empty file), missing values in `fast.csv`, `fast.csv` signals in volts instead of ADC counts (three December 2021 cycles), or a
   `fast.csv` byte-identical to another cycle's (all copies dropped if their labels
   differ, otherwise one kept). The current build keeps 83 of the 96 cycles.
 - Nothing else from the dataset is redistributed: the raw recordings, the metadata

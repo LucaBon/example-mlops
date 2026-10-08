@@ -9,6 +9,7 @@ from data_prep.build_dataset import (
     FAST_RATE,
     META_COLUMNS,
     align_offset,
+    build_cycle,
     fast_features,
     fast_seconds,
     load_metadata,
@@ -103,9 +104,12 @@ def test_build_dataset_fast_only_by_default(raw_dir, tmp_path):
     assert all(pd.api.types.is_numeric_dtype(features[c]) for c in features)
     assert not df.isna().any().any()
     assert all(c.startswith(('Current_', 'Vibration_')) for c in features)
-    for name in ('Current_rms', 'Current_std', 'Vibration_kurtosis', 'Vibration_p2p',
+    for name in ('Current_std', 'Vibration_kurtosis', 'Vibration_p2p',
                  'Vibration_band_180_1024hz'):
         assert name in features
+    assert not any(c.endswith('_rms') for c in features)
+    # Shares are written with 6 significant digits
+    assert (features.filter(regex='^Current_band_').sum(axis=1) <= 1 + 1e-5).all()
     bands = features.filter(regex='^Vibration_band_')
     assert np.allclose(bands.sum(axis=1), 1)
     # 400 Hz tone
@@ -118,9 +122,9 @@ def test_build_dataset_with_slow(raw_dir, tmp_path):
     assert set(df['cycle_id']) == set(CYCLES)
     assert (df.groupby('cycle_id').size() == 13).all()
     assert not df.isna().any().any()
-    for name in ('ActP_mean', 'A_std', 'V_min', 'PF_max', 'Current_rms', 'Vibration_std'):
+    for name in ('ActP_mean', 'A_std', 'PF_max', 'Current_std', 'Vibration_std'):
         assert name in features
-    assert not any(c.startswith(('ActE', 'Fr_')) for c in features)
+    assert not any(c.startswith(('ActE', 'Fr_', 'V_')) for c in features)
 
 
 def test_duplicate_fast_files_with_conflicting_labels_are_dropped(raw_dir, tmp_path):
@@ -163,8 +167,6 @@ def test_fast_features_match_direct_computation(tmp_path):
     assert row['Vibration_std'] == pytest.approx(x.std(ddof=1))
     assert row['Vibration_p2p'] == x.max() - x.min()
     assert row['Vibration_kurtosis'] == pytest.approx(kurtosis(x), abs=1e-6)
-    dc = np.median(signal[:SECONDS * FAST_RATE].reshape(SECONDS, FAST_RATE).mean(axis=1))
-    assert row['Vibration_rms'] == pytest.approx(np.sqrt(np.mean((x - dc) ** 2)))
 
 
 def test_align_offset_recovers_late_fast_start(tmp_path):
@@ -174,3 +176,75 @@ def test_align_offset_recovers_late_fast_start(tmp_path):
     offset, corr = align_offset(slow, fast_seconds(folder / 'fast.csv'), min_overlap=20)
     assert offset == 7
     assert corr > 0.99
+
+
+def write_fast(path, current, vibration):
+    pd.DataFrame({'UnixTimestamp (us)': np.arange(len(current)) * 488,
+                  'Current': current, 'Vibration': vibration}).to_csv(path, index=False)
+
+
+def test_fast_seconds_drops_trailing_partial_second(tmp_path):
+    n = 3 * FAST_RATE + 100
+    rng = np.random.default_rng(0)
+    write_fast(tmp_path / 'fast.csv', rng.integers(1800, 1900, n), rng.integers(0, 4096, n))
+    assert len(fast_seconds(tmp_path / 'fast.csv', chunk_seconds=2)) == 3
+
+
+@pytest.mark.parametrize('current, message', [
+    (np.full(2 * FAST_RATE, 1.85), 'not integer ADC counts'),
+    (np.where(np.arange(2 * FAST_RATE) == 100, np.nan, 1850), 'missing values in fast.csv'),
+])
+def test_fast_seconds_rejects_bad_signals(tmp_path, current, message):
+    write_fast(tmp_path / 'fast.csv', current, np.full(2 * FAST_RATE, 1900))
+    with pytest.raises(ValueError, match=message):
+        fast_seconds(tmp_path / 'fast.csv')
+
+
+def test_header_only_fast_file_is_too_short(tmp_path):
+    folder = tmp_path / 'cycle'
+    write_cycle(folder, 1000, seed=1)
+    (folder / 'fast.csv').write_text('UnixTimestamp (us),Current,Vibration\n')
+    labels = {'failure': 'Working', 'brand': 'b', 'model': 'm', 'timestamp_begin': 1000}
+    with pytest.raises(ValueError, match='shorter than one window'):
+        build_cycle(folder, labels, window=20, stride=5)
+
+
+@pytest.mark.parametrize('vibration', [
+    np.full(30 * FAST_RATE, 4095),
+    10_000_000 + np.random.default_rng(1).integers(-50, 50, 30 * FAST_RATE),
+], ids=['flat', 'large_dc_offset'])
+def test_fast_features_flat_and_offset_signals_have_no_nan(tmp_path, vibration):
+    write_fast(tmp_path / 'fast.csv', np.full(len(vibration), 1850), vibration)
+    feats = fast_features(fast_seconds(tmp_path / 'fast.csv'), window=10)
+    assert not feats.isna().any().any()
+    # Current is flat in both cases
+    assert (feats['Current_kurtosis'] == 0).all()
+    assert (feats['Current_std'] == 0).all()
+    assert (feats.filter(regex='^Current_band_').sum(axis=1) == 0).all()
+    x = vibration[-10 * FAST_RATE:].astype(float)
+    assert feats['Vibration_std'].iloc[-1] == pytest.approx(x.std(ddof=1), rel=1e-6, abs=1e-6)
+
+
+def test_build_cycle_with_slow_applies_offset(tmp_path, capsys):
+    folder = tmp_path / 'cycle'
+    write_cycle(folder, 1000, seed=4, fast_delay=7)
+    labels = {'failure': 'Working', 'brand': 'b', 'model': 'm', 'timestamp_begin': 1000}
+    rows = build_cycle(folder, labels, window=20, stride=5, with_slow=True)
+    assert 'fast offset +7 s' in capsys.readouterr().out
+    # Slow windows end at Ts 1019, 1024, ...; fast data starts at Ts 1007
+    assert rows['TIMESTAMP'].tolist() == list(range(1030, 1081, 5))
+    assert rows['Current_std'].corr(rows['A_mean']) > 0.9
+    assert not rows.isna().any().any()
+
+
+def test_no_usable_cycle_raises(raw_dir, tmp_path):
+    for name in list(CYCLES):
+        (raw_dir / name / 'fast.csv').unlink()
+    with pytest.raises(ValueError, match='No usable cycle'):
+        build(raw_dir, tmp_path)
+
+
+@pytest.mark.parametrize('option', ['--window', '--stride'])
+def test_window_and_stride_must_be_positive(raw_dir, tmp_path, option):
+    with pytest.raises(SystemExit):
+        main([str(raw_dir), str(tmp_path / 'out.csv'), option, '0'])

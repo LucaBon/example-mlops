@@ -71,16 +71,20 @@ licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The de
 
 Each row is a 60 s window, taken every 10 s, of one washing cycle. `target` is the
 cycle's label (`Working`, `Heating`, `Bearings` or `Motor`). `TIMESTAMP` (cycle start
-from the metadata plus the window end in seconds), `DateTime`, `cycle_id`, `brand` and
-`model` are metadata. All other columns are statistics and spectral band shares of the
-2048 Hz current and vibration signals (`fast.csv`).
+from the metadata plus the exclusive window end in seconds), `DateTime`, `cycle_id`,
+`brand` and `model` are metadata. All other columns are statistics and spectral band
+shares of the 2048 Hz current and vibration signals (`fast.csv`).
 
 The 1 Hz power meter (`slow.csv`) is left out by default: its clock does not match
 the fast recording, and in every Motor cycle it reads zero power, so a model would
 learn a recording artifact. Cycles are skipped, with the reason printed, when they
-have no label, less than one window of fast data, fast signals in volts instead of
-ADC counts (three December 2021 cycles), or a `fast.csv` identical to another
-cycle's. The current build keeps 83 of 96 cycles.
+have no label, a missing `fast.csv`, less than one window of fast data, missing
+values, fast signals in volts instead of ADC counts (three December 2021 cycles), or
+a `fast.csv` identical to another cycle's. The current build keeps 83 of 96 cycles.
+
+The fault classes are concentrated on one machine: all Bearings and Motor cycles come
+from the Indesit BWE 101484X, so the features may partly encode machine identity. The
+evaluation therefore also reports per-machine results.
 
 To rebuild it, download the dataset from the Zenodo record above, unpack it (about
 22 GB) and run:
