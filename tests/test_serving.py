@@ -1,5 +1,9 @@
+import pytest
+
+from components.preprocess import preprocess
+from components.train import train
 from serving.drift import detect_drift
-from serving.predict import build_payload, parse_response, prediction_url
+from serving.predict import build_payload, model_feature_names, parse_response, prediction_url
 from tests.conftest import make_dataset
 
 
@@ -10,6 +14,30 @@ def test_payload_contains_only_features():
     assert 'target' not in names and 'DateTime' not in names
     assert len(payload['data']['ndarray']) == 5
     assert len(payload['data']['ndarray'][0]) == len(names)
+
+
+def test_payload_uses_model_features_in_order():
+    df = make_dataset(n_rows=3)
+    payload = build_payload(df, ['feature_2', 'feature_0'])
+    assert payload['data']['names'] == ['feature_2', 'feature_0']
+    assert payload['data']['ndarray'][0] == df.loc[0, ['feature_2', 'feature_0']].tolist()
+
+
+def test_payload_rejects_missing_model_features():
+    with pytest.raises(ValueError, match='feature_9'):
+        build_payload(make_dataset(n_rows=3), ['feature_0', 'feature_9'])
+
+
+def test_model_feature_names_excludes_dropped_columns(mlflow_store, raw_csv, tmp_path):
+    train_path, test_path = tmp_path / 'train.csv', tmp_path / 'test.csv'
+    preprocess(str(raw_csv), str(train_path), str(test_path))
+    out = train(str(train_path), n_estimators=5)
+
+    names = model_feature_names(f'runs:/{out.run_id}/model')
+    assert names == [f'feature_{i}' for i in range(8)]
+    # 'constant' is in the raw data but was dropped by preprocess
+    payload = build_payload(make_dataset(n_rows=2), names)
+    assert 'constant' not in payload['data']['names']
 
 
 def test_parse_response_formats():

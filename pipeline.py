@@ -13,6 +13,7 @@ from kubernetes.client.models import V1EnvVar
 from components.evaluate import evaluate
 from components.load_data import get_data_from_dvc
 from components.preprocess import preprocess
+from components.promote import promote
 from components.train import train
 
 OUTPUT_DIRECTORY = 'generated'
@@ -46,6 +47,7 @@ load_data_op = _component(get_data_from_dvc, 'load_data', ['dvc', 'dvc-s3'])
 preprocess_op = _component(preprocess, 'preprocess', ['pandas==1.4.2'])
 training_op = _component(train, 'train', ML_PACKAGES)
 evaluate_op = _component(evaluate, 'evaluate', ML_PACKAGES)
+promote_op = _component(promote, 'promote', ML_PACKAGES)
 deploy_op = kfp.components.load_component_from_file(
     os.path.join(PROJECT_ROOT, 'components', 'deploy', 'component.yaml'))
 
@@ -101,9 +103,11 @@ def washing_machine_pipeline(
         min_accuracy=min_accuracy))
 
     with dsl.Condition(evaluate_task.outputs['decision'] == 'deploy'):
-        deploy_op(model_uri=train_task.outputs['model_uri'],
-                  namespace=namespace,
-                  deployment_name=deployment_name)
+        deploy_task = deploy_op(model_uri=train_task.outputs['model_uri'],
+                                namespace=namespace,
+                                deployment_name=deployment_name)
+        with_mlflow_env(promote_op(
+            model_version=train_task.outputs['model_version'])).after(deploy_task)
 
 
 def _client(host):

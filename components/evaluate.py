@@ -13,9 +13,9 @@ def evaluate(test_path: InputPath('CSV'),
              ) -> NamedTuple('Outputs', [('decision', str)]):
     """Score the candidate model on the test split and gate deployment.
 
-    Returns ``deploy`` (and promotes the version to Production) when the
-    candidate reaches ``min_accuracy`` and its macro-F1 is not worse than
-    the current Production model; ``skip`` otherwise.
+    Returns ``deploy`` when the candidate reaches ``min_accuracy`` and its
+    macro-F1 is not worse than the current Production model; ``skip``
+    otherwise. Promotion happens in ``promote``, after a successful deploy.
     """
     import json
     from collections import namedtuple
@@ -65,11 +65,6 @@ def evaluate(test_path: InputPath('CSV'),
         if champion:
             mlflow.log_metrics({f'champion_{k}': v for k, v in champion.items()})
         mlflow.set_tag('evaluation_decision', decision)
-
-    if decision == 'deploy':
-        client.transition_model_version_stage(
-            registered_model_name, model_version, 'Production',
-            archive_existing_versions=True)
 
     summary = {'candidate_version': model_version, 'candidate': candidate,
                'champion_version': champion_version, 'champion': champion,

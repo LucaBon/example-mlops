@@ -4,17 +4,20 @@ Kubeflow pipeline (kfp v1 SDK) that trains a washing-machine cycle classifier
 on windowed sensor signals and serves it with Seldon Core.
 
 ```
-load_data ─► preprocess ─► train ─► evaluate ─► [decision == deploy] ─► deploy
-  (DVC/S3)    clean +        RandomForest   test metrics vs          SeldonDeployment
-              chronological  logged to      min_accuracy and         (MLFLOW_SERVER)
-              train/test     MLflow +       current Production;
-              split          registry       promotes to Production
+load_data ─► preprocess ─► train ─► evaluate ─► [decision == deploy] ─► deploy ─► promote
+  (DVC/S3)    clean +        RandomForest   test metrics vs          SeldonDeployment  version ->
+              chronological  logged to      min_accuracy and         (MLFLOW_SERVER)   Production
+              train/test     MLflow +       current Production
+              split          registry
 ```
+
+The registry's Production stage only changes after Seldon reports the deployment
+`Available`, so it always matches the model being served.
 
 | Path | What |
 | --- | --- |
 | `pipeline.py` | Pipeline definition and CLI (`compile`, `run`, `schedule`) |
-| `components/` | Lightweight components (`load_data`, `preprocess`, `train`, `evaluate`) and the `deploy` container component |
+| `components/` | Lightweight components (`load_data`, `preprocess`, `train`, `evaluate`, `promote`) and the `deploy` container component |
 | `serving/predict.py` | Client for the deployed model (Seldon v1 protocol) |
 | `serving/drift.py` | Feature drift check (KS test + PSI) between reference and recent data |
 | `k8s/` | RBAC so pipeline steps can create SeldonDeployments |
@@ -53,9 +56,14 @@ You can also upload `generated/washing_machine-pipeline.yaml` through the UI. It
 ## Use the model
 
 ```
-python -m serving.predict data.csv --host http://<istio-ingress> --namespace kalpa-k8 --rows 5
+python -m serving.predict data.csv --host http://<istio-ingress> --namespace kalpa-k8 --rows 5 \
+    --model_uri models:/WashingMachineModel/Production
 python -m serving.drift reference_train.csv recent_inputs.csv   # exit code 1 on drift
 ```
+
+With `--model_uri` (needs `MLFLOW_TRACKING_URI` and artifact store credentials), the client
+sends exactly the model's input columns in training order. Without it, it sends every
+non-metadata column of the CSV.
 
 Add `logger: {mode: all}` to the predictor in
 `components/deploy/templates/deploy-manifest.j2` to collect live requests for drift checks.
