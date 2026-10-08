@@ -5,30 +5,64 @@ on windowed sensor signals and serves it with Seldon Core.
 
 ```
 load_data ─► preprocess ─► train ─► evaluate ─► [decision == deploy] ─► deploy ─► promote
-  (DVC)       clean +        RandomForest:  test-set gates +         SeldonDeployment  version ->
-              chronological  val metrics,   champion comparison      (MLFLOW_SERVER)   Production
-              train/val/test refit on
-              split with gap train+val,
-                             registered
+  (DVC)       clean +        grouped CV     CV gates, cycle-level    SeldonDeployment  version ->
+              stratified     by cycle,      test vs majority and     (MLFLOW_SERVER)   Production
+              train/test     fit on all     champion, per-machine
+              split by       train cycles,  report
+              cycle_id       registered
 ```
 
 ### Evaluation
 
-- `preprocess` sorts rows by time and splits them into train, validation and test
-  (`val_size`, `test_size`). It drops `gap` rows before validation and before test so
-  that overlapping windows never sit on both sides of a boundary. Set `gap` to at
-  least the window overlap in rows.
-- `train` fits on train and logs `val_accuracy` / `val_f1_macro`. Compare runs on
-  these when tuning hyperparameters, never on the test metrics. The registered model
-  is then refit on train + validation.
-- `evaluate` uses the test split once. It returns `deploy` only when the candidate
-  reaches `min_f1_macro`, recalls every test class at least `min_class_recall`, is
-  more accurate than always predicting the majority class, and beats the Production
-  model. Beating the Production model means a macro-F1 higher by more than
-  `min_improvement` and higher in at least `min_prob_better` of the block-bootstrap
-  resamples of the test set (blocks of `gap` rows). A tie never redeploys.
-  Per-class recall, a bootstrap CI for macro-F1 and the confusion matrix are logged
-  to MLflow. The confusion matrix also appears in the KFP UI.
+The washing cycle is the unit of evaluation. Each cycle becomes many 60 s windows
+with a 10 s stride, so windows of one cycle are near-duplicates: scoring windows
+would count the same cycle dozens of times, and splitting windows would leak a cycle
+into both train and test.
+
+- `preprocess` splits by `cycle_id`, stratified by class. Within each class, cycles
+  are ranked by the md5 of their `cycle_id` and the lowest `test_size` share goes to
+  test (at least one cycle when the class has two or more). The ranking does not
+  depend on row order, so reruns give the same split and new cycles only move the
+  train/test boundary of their class. `cycle_id`, `brand` and `model` are kept as
+  metadata and are never model features.
+- `train` runs `cv_repeats` x `cv_folds` stratified cross-validation over the train
+  cycles (`StratifiedKFold` on one label per cycle, so all windows of a cycle land in
+  the same fold; folds are capped by the smallest class). Out-of-fold window predictions are reduced to one label per cycle
+  by majority vote, and the cycle-level `cv_f1_macro_mean/std/min`,
+  `cv_accuracy_mean` and `cv_recall_<class>_mean` are logged to MLflow. Compare runs
+  on these when tuning. The registered model is then fit on all train cycles, and
+  the list of its train cycles is logged as `train_cycles.json`.
+- `evaluate` returns `deploy` only when
+  - `cv_f1_macro_mean` reaches `min_f1_macro` and every `cv_recall_<class>_mean`
+    reaches `min_class_recall`. With only 6-7 cycles per fault class, a single
+    holdout has one or two cycles of each fault and its scores jump with each one,
+    so the repeated CV over all train cycles is the main quality gate;
+  - test cycle accuracy beats always predicting the majority class;
+  - the candidate beats the Production model (the champion): cycle-level macro-F1
+    higher by more than `min_improvement` and higher in at least `min_prob_better`
+    of a paired bootstrap that resamples cycles within each class. Both models are
+    scored on the test cycles missing from the champion's `train_cycles.json`, since
+    a split rerun on more data can move a cycle the champion trained on into test.
+    If the test macro-F1 is tied (for example both perfect), the candidate must
+    instead have a `cv_f1_macro_mean` higher than the champion's by more than
+    `min_improvement`. Retraining the same model on the same data is therefore never
+    redeployed. When no comparison is possible (the champion has no
+    `train_cycles.json`, cannot score the test set, or has seen every test cycle),
+    `evaluate` prints a warning, records the reason as `champion_note`, and only
+    the other gates apply.
+
+  Cycle-level and window-level test metrics, per-class recall and the cycle-level
+  confusion matrix are logged to MLflow; the confusion matrix also appears in the
+  KFP UI.
+- Per-machine report (information, not a gate). Fault classes are concentrated on
+  one machine model (all Bearings and Motor cycles come from the same model) and the
+  features alone identify the machine model of most cycles. A classifier can
+  therefore score well by recognising the machine rather than the fault. `evaluate`
+  reports test accuracy and per-class recall for each `model`, plus the metrics on
+  `multi_class_models`, the machine models with at least two classes in the test
+  set, where machine identity alone cannot give the answer. The table appears in the
+  KFP UI next to the confusion matrix and as `test_machine_*` and
+  `test_multi_class_models_*` metrics in MLflow.
 
 The registry's Production stage only changes after Seldon reports the deployment
 `Available`, so it always matches the model being served.
@@ -118,9 +152,10 @@ python pipeline.py schedule --host <KFP_URL> --cron "0 0 3 * * 1"   # weekly ret
 ```
 
 You can also upload `generated/washing_machine-pipeline.yaml` through the UI. Its parameters are
-`repo_url`, `filename`, `dvc_remote` (`minio` or `s3`), `val_size`, `test_size`, `gap`, `n_estimators`, `max_depth`
-(0 = unlimited), `random_state`, `min_f1_macro`, `min_class_recall`, `min_improvement`,
-`min_prob_better`, `namespace` and `deployment_name`.
+`repo_url`, `filename`, `dvc_remote` (`minio` or `s3`), `test_size`, `n_estimators`, `max_depth`
+(0 = unlimited), `random_state`, `cv_folds`, `cv_repeats`, `class_weight` (empty or
+`balanced`), `min_f1_macro`, `min_class_recall`, `min_improvement`, `min_prob_better`,
+`namespace` and `deployment_name`.
 
 ## Use the model
 

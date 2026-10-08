@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import ks_2samp
 
-NON_FEATURE_COLUMNS = ['TIMESTAMP', 'DateTime', 'target']
+NON_FEATURE_COLUMNS = ['TIMESTAMP', 'DateTime', 'target', 'cycle_id', 'brand', 'model']
 
 
 def psi(reference: np.ndarray, current: np.ndarray, bins: int = 10) -> float:
