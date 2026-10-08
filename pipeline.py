@@ -94,13 +94,14 @@ def washing_machine_pipeline(
         repo_url: str = DEFAULT_ARGUMENTS['repo_url'],
         filename: str = DEFAULT_ARGUMENTS['filename'],
         dvc_remote: str = 'minio',
-        val_size: float = 0.2,
-        test_size: float = 0.2,
-        gap: int = 60,
+        test_size: float = 0.25,
         n_estimators: int = 300,
         max_depth: int = 0,
         random_state: int = 42,
-        min_f1_macro: float = 0.8,
+        cv_folds: int = 5,
+        cv_repeats: int = 2,
+        class_weight: str = '',
+        min_f1_macro: float = 0.6,
         min_class_recall: float = 0.5,
         min_improvement: float = 0.0,
         min_prob_better: float = 0.9,
@@ -121,16 +122,18 @@ def washing_machine_pipeline(
                           'AWS_SECRET_ACCESS_KEY': 'AWS_SECRET_ACCESS_KEY'})))
 
     preprocess_task = preprocess_op(file=load_data_task.outputs['data'],
-                                    val_size=val_size,
-                                    test_size=test_size,
-                                    gap=gap)
+                                    test_size=test_size)
 
     train_task = with_mlflow_env(training_op(
         train=preprocess_task.outputs['train'],
-        val=preprocess_task.outputs['val'],
         n_estimators=n_estimators,
         max_depth=max_depth,
-        random_state=random_state))
+        random_state=random_state,
+        cv_folds=cv_folds,
+        cv_repeats=cv_repeats,
+        class_weight=class_weight))
+    # Fits cv_repeats x cv_folds + 1 forests with n_jobs=-1
+    train_task.set_cpu_request('2').set_memory_request('4G')
 
     evaluate_task = with_mlflow_env(evaluate_op(
         test=preprocess_task.outputs['test'],
@@ -139,8 +142,7 @@ def washing_machine_pipeline(
         min_f1_macro=min_f1_macro,
         min_class_recall=min_class_recall,
         min_improvement=min_improvement,
-        min_prob_better=min_prob_better,
-        block_size=gap))
+        min_prob_better=min_prob_better))
 
     with dsl.Condition(evaluate_task.outputs['decision'] == 'deploy'):
         deploy_task = deploy_op(model_uri=train_task.outputs['model_uri'],

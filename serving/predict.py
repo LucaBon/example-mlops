@@ -5,7 +5,7 @@ import json
 import pandas as pd
 import requests
 
-NON_FEATURE_COLUMNS = ['TIMESTAMP', 'DateTime', 'target']
+NON_FEATURE_COLUMNS = ['TIMESTAMP', 'DateTime', 'target', 'cycle_id', 'brand', 'model']
 
 
 def model_feature_names(model_uri: str) -> list:
