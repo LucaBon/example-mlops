@@ -1,0 +1,39 @@
+- op: replace
+  path: /spec/template/spec/containers/0/image
+  value: docker.io/bitnamilegacy/minio:2024.11.7@sha256:81cd091fb9f14b2e9e9bfa6dbc2bf2d46fdd5eafa6c5e7c9213baf4256ff13d6
+# The Bitnami entrypoint starts the server itself
+- op: remove
+  path: /spec/template/spec/containers/0/args
+- op: replace
+  path: /spec/template/spec/containers/0/env
+  value:
+  - name: MINIO_ROOT_USER
+    valueFrom:
+      secretKeyRef:
+        name: mlpipeline-minio-artifact
+        key: accesskey
+  - name: MINIO_ROOT_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: mlpipeline-minio-artifact
+        key: secretkey
+  - name: MINIO_DATA_DIR
+    value: /data
+  # Created at startup when missing
+  - name: MINIO_DEFAULT_BUCKETS
+    value: mlpipeline,mlflow,dvc
+- op: add
+  path: /spec/template/spec/containers/0/readinessProbe
+  value:
+    httpGet:
+      path: /minio/health/ready
+      port: 9000
+    periodSeconds: 5
+- op: replace
+  path: /spec/template/spec/containers/0/resources
+  value:
+    requests:
+      cpu: 20m
+      memory: 128Mi
+    limits:
+      memory: 512Mi

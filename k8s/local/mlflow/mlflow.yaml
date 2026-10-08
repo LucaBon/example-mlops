@@ -1,0 +1,100 @@
+# MLflow tracking server and model registry. Runs and models live in SQLite on
+# a PVC; clients write artifacts straight to s3://mlflow/ on the KFP MinIO.
+# The server stays on 1.x: MLflow 2.x dropped the /api/2.0/preview/mlflow/
+# registry endpoints that the pipeline's mlflow 1.24 client calls.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlflow-db
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow-server
+  labels:
+    app: mlflow-server
+spec:
+  replicas: 1
+  # SQLite on a ReadWriteOnce volume: never run two pods at once
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mlflow-server
+  template:
+    metadata:
+      labels:
+        app: mlflow-server
+    spec:
+      containers:
+      - name: mlflow-server
+        image: ghcr.io/mlflow/mlflow:v1.30.0@sha256:c2954d7c8eb046f078cd2c42348861923e8ed70e58b1c57e8d8623ddca105af5
+        # The image has no boto3, which the server needs to list S3 artifacts
+        # in the UI. It is installed at startup (needs PyPI access).
+        command:
+        - sh
+        - -c
+        - >-
+          pip install --quiet --no-cache-dir --disable-pip-version-check boto3==1.35.36 &&
+          exec mlflow server
+          --host 0.0.0.0 --port 5000 --workers 2
+          --backend-store-uri sqlite:////mlflow/mlflow.db
+          --default-artifact-root s3://mlflow/
+        env:
+        - name: MLFLOW_S3_ENDPOINT_URL
+          value: http://minio.kubeflow.svc.cluster.local:9000
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: mlpipeline-minio-artifact
+              key: accesskey
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mlpipeline-minio-artifact
+              key: secretkey
+        ports:
+        - name: http
+          containerPort: 5000
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 120
+          periodSeconds: 20
+        resources:
+          requests:
+            cpu: 50m
+            memory: 256Mi
+          limits:
+            memory: 1Gi
+        volumeMounts:
+        - name: db
+          mountPath: /mlflow
+      volumes:
+      - name: db
+        persistentVolumeClaim:
+          claimName: mlflow-db
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow-server
+spec:
+  selector:
+    app: mlflow-server
+  ports:
+  - name: http
+    port: 5000
+    targetPort: http

@@ -1,0 +1,15 @@
+# pipeline.py and the Seldon storage initializer use minio.kubeflow:9000;
+# KFP names its own service minio-service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: kubeflow
+spec:
+  selector:
+    app: minio
+    application-crd-id: kubeflow-pipelines
+  ports:
+  - name: http
+    port: 9000
+    targetPort: 9000

@@ -1,0 +1,18 @@
+# Values for the seldon-core-operator 1.17.1 chart, rendered by setup.sh.
+# No Istio/Ambassador: predictors are reached through their Service.
+usageMetrics:
+  enabled: false
+# The operator creates its webhook configuration and self-signed certificates
+# at startup, so neither cert-manager nor certificates in the rendered output
+# are needed.
+managerCreateResources: true
+certManager:
+  enabled: false
+istio:
+  enabled: false
+ambassador:
+  enabled: false
+executor:
+  resources:
+    cpuRequest: 100m
+    memoryRequest: 128Mi

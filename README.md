@@ -75,6 +75,7 @@ The registry's Production stage only changes after Seldon reports the deployment
 | `serving/predict.py` | Client for the deployed model (Seldon v1 protocol) |
 | `serving/drift.py` | Feature drift check (KS test + PSI) between reference and recent data |
 | `k8s/` | RBAC so pipeline steps can create SeldonDeployments |
+| `k8s/local/` | Setup of a local k3s cluster with standalone KFP, MLflow and Seldon (see its README) |
 | `admin-integrations.sh` | One-off setup of MLflow/MinIO PodDefaults, Seldon secret and RBAC in the user namespace |
 
 ## Cluster prerequisites
