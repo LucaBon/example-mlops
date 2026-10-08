@@ -1,9 +1,11 @@
 FROM python:3.9
 
+ARG KUBECTL_VERSION=v1.27.16
+
 # Install kubectl
-RUN curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
-RUN chmod +x ./kubectl
-RUN mv ./kubectl /usr/local/bin
+RUN curl -fsSLo /usr/local/bin/kubectl \
+      https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl \
+    && chmod +x /usr/local/bin/kubectl
 
 COPY requirements.txt .
 RUN python3 -m pip install -r \

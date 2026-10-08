@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Lint
+        run: ruff check .
+      - name: Test
+        run: pytest -q
+      - name: Compile pipeline
+        run: python pipeline.py compile
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pipeline
+          path: generated/*.yaml
+
+  deploy-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build deploy component image
+        run: docker build -t washing-machine-deploy-model:ci components/deploy
+      - name: Render manifest from the image
+        run: docker run --rm washing-machine-deploy-model:ci --model_uri s3://mlflow/0/ci/artifacts/model --render_only

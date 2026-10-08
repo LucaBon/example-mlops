@@ -159,3 +159,10 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 /signal_cycles_train_win_60_data.csv
+
+# Local MLflow tracking data
+mlruns/
+mlflow.db
+
+# Compiled pipeline and component specs (python pipeline.py compile)
+generated/*.yaml
