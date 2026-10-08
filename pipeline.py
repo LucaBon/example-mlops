@@ -8,7 +8,7 @@ import kfp
 from kfp import dsl
 from kfp.aws import use_aws_secret
 from kfp.onprem import use_k8s_secret
-from kubernetes.client.models import V1EnvVar
+from kubernetes.client.models import V1EnvVar, V1LocalObjectReference
 
 from components.evaluate import evaluate
 from components.load_data import get_data_from_dvc
@@ -23,6 +23,8 @@ PIPELINE_FILE = os.path.join(PROJECT_ROOT, OUTPUT_DIRECTORY,
 
 MLFLOW_TRACKING_URI = 'http://mlflow-server.kubeflow.svc.cluster.local:5000'
 MLFLOW_S3_ENDPOINT_URL = 'http://minio.kubeflow.svc.cluster.local:9000'
+# docker-registry secret for ghcr.io, created by admin-integrations.sh
+IMAGE_PULL_SECRET = 'ghcr-pull-secret'
 BASE_IMAGE = 'python:3.9'
 ML_PACKAGES = ['pandas==1.4.2', 'scikit-learn==1.0.2', 'mlflow==1.24.0',
                'boto3==1.21.32', 'protobuf==3.20.0', 'setuptools<70']
@@ -81,6 +83,10 @@ def washing_machine_pipeline(
         min_accuracy: float = 0.8,
         namespace: str = 'kubeflow-user-example-com',
         deployment_name: str = 'washing-machine'):
+    # The deploy component image is private on ghcr.io
+    dsl.get_pipeline_conf().set_image_pull_secrets(
+        [V1LocalObjectReference(name=IMAGE_PULL_SECRET)])
+
     load_data_task = load_data_op(repo_url, filename).apply(
         use_aws_secret(secret_name='aws-secret',
                        aws_access_key_id_name='AWS_ACCESS_KEY_ID',

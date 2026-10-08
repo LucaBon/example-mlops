@@ -12,6 +12,8 @@ def test_pipeline_compiles_with_gated_deploy(monkeypatch):
     with open(pipeline.PIPELINE_FILE) as f:
         workflow = yaml.safe_load(f)
 
+    assert workflow['spec']['imagePullSecrets'] == [{'name': pipeline.IMAGE_PULL_SECRET}]
+
     templates = {t['name']: t for t in workflow['spec']['templates']}
     assert {'get-data-from-dvc', 'preprocess', 'train', 'evaluate',
             'deploy-model', 'promote'} <= set(templates)
