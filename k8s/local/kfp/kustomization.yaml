@@ -1,0 +1,38 @@
+# Standalone Kubeflow Pipelines 2.4.1 with images that still pull (MinIO,
+# argoexec, cache), credentials from the mlpipeline-minio-artifact secret
+# created by setup.sh, and smaller memory requests for a single-node cluster.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- github.com/kubeflow/pipelines/manifests/kustomize/env/platform-agnostic?ref=2.4.1
+- minio-alias-service.yaml
+patches:
+# The upstream secret holds the default minio/minio123 keys; setup.sh creates
+# it with random keys instead, so it must not be overwritten here.
+- patch: |-
+    $patch: delete
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: mlpipeline-minio-artifact
+      namespace: kubeflow
+# gcr.io/ml-pipeline/minio is no longer published.
+- target:
+    kind: Deployment
+    name: minio
+  path: minio-patch.yaml
+- target:
+    kind: Deployment
+    name: workflow-controller
+  path: argoexec-patch.yaml
+# Image that replaces a cached step. registry.k8s.io/busybox is a schema 1
+# image, which containerd 2.1+ (k3s 1.33+) can no longer pull.
+- patch: |-
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: pipeline-install-config
+      namespace: kubeflow
+    data:
+      cacheImage: docker.io/library/busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+- path: resources-patch.yaml

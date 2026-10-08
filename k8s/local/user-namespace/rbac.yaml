@@ -1,0 +1,24 @@
+# Lets pipeline steps (kubeflow:pipeline-runner in standalone KFP) create and
+# wait for SeldonDeployments in the deploy namespace. setup.sh applies it with
+#   kubectl apply -n <namespace> -f k8s/local/user-namespace/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: seldon-deployer
+rules:
+- apiGroups: ["machinelearning.seldon.io"]
+  resources: ["seldondeployments", "seldondeployments/status"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: seldon-deployer-pipeline-runner
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: seldon-deployer
+subjects:
+- kind: ServiceAccount
+  name: pipeline-runner
+  namespace: kubeflow

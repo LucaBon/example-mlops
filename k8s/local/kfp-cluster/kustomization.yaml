@@ -1,0 +1,5 @@
+# Kubeflow Pipelines CRDs, cluster roles and the kubeflow namespace.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- github.com/kubeflow/pipelines/manifests/kustomize/cluster-scoped-resources?ref=2.4.1

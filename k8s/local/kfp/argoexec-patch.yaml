@@ -1,0 +1,8 @@
+# gcr.io/ml-pipeline/argoexec is no longer published; use the upstream Argo build
+# of the same version.
+- op: test
+  path: /spec/template/spec/containers/0/args/2
+  value: --executor-image
+- op: replace
+  path: /spec/template/spec/containers/0/args/3
+  value: quay.io/argoproj/argoexec:v3.4.17@sha256:80a82145d4abd2e467b1151d98f55252e6f8c6eeae0ca58ef398e1b0090080a3
