@@ -1,5 +1,15 @@
 [core]
-    remote = dvc-remote
-['remote "dvc-remote"']
+    remote = local
+# Folder on this machine; point it elsewhere without committing:
+#   dvc remote modify --local local url /path/to/storage
+['remote "local"']
+    url = ../.dvc-storage
+# In-cluster MinIO. From a laptop, port-forward and override the endpoint:
+#   dvc remote modify --local minio endpointurl http://localhost:9000
+['remote "minio"']
+    url = s3://dvc/dvc_remote
+    endpointurl = http://minio.kubeflow.svc.cluster.local:9000
+['remote "s3"']
     url = s3://mlops-remote-storage/dvc_remote
+    region = eu-south-1
     version_aware = false

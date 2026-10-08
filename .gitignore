@@ -159,6 +159,8 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 /signal_cycles_train_win_60_data.csv
+# Default "local" DVC remote
+/.dvc-storage/
 
 # Local MLflow tracking data
 mlruns/
