@@ -34,11 +34,18 @@ Kubeflow with MLflow (`mlflow-server.kubeflow:5000`), MinIO and Seldon Core v1.
 
 ## Build the deploy component image
 
+The image is published to GitHub Container Registry as
+`ghcr.io/lucabon/washing-machine-deploy-model`:
+
 ```
+gh auth refresh -s write:packages                       # once
+gh auth token | docker login ghcr.io -u <github-user> --password-stdin
 cd components/deploy && ./build_image.sh
 ```
 
-Update the image in `components/deploy/component.yaml` if you push to your own registry.
+Make the package public on GitHub, or add an `imagePullSecret` for `ghcr.io` in the
+user namespace, so the cluster can pull it. To use another registry, change `REPO` in
+`build_image.sh` and the image in `components/deploy/component.yaml`.
 
 ## Compile, run, schedule
 
@@ -56,7 +63,7 @@ You can also upload `generated/washing_machine-pipeline.yaml` through the UI. It
 ## Use the model
 
 ```
-python -m serving.predict data.csv --host http://<istio-ingress> --namespace kalpa-k8 --rows 5 \
+python -m serving.predict data.csv --host http://<istio-ingress> --namespace kubeflow-user-example-com --rows 5 \
     --model_uri models:/WashingMachineModel/Production
 python -m serving.drift reference_train.csv recent_inputs.csv   # exit code 1 on drift
 ```

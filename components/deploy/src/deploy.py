@@ -41,7 +41,7 @@ def deploy(model_uri: str, namespace: str, deployment_name: str,
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Deploy an MLflow model with Seldon Core')
     parser.add_argument('--model_uri', required=True, help='Model URI')
-    parser.add_argument('--namespace', default='kalpa-k8')
+    parser.add_argument('--namespace', default='kubeflow-user-example-com')
     parser.add_argument('--deployment_name', default='washing-machine')
     parser.add_argument('--render_only', action='store_true',
                         help='print the manifest without applying it')

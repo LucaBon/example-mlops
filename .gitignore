@@ -166,3 +166,6 @@ mlflow.db
 
 # Compiled pipeline and component specs (python pipeline.py compile)
 generated/*.yaml
+
+# oh-my-claudecode local state
+.omc/

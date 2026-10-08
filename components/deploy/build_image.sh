@@ -1,9 +1,9 @@
 #!/bin/bash
 
 VERSION="1.1.0"
-REPO="kalpa/washing-machine-deploy-model"
+REPO="ghcr.io/lucabon/washing-machine-deploy-model"
 
-sudo docker build . -t $REPO:$VERSION
-sudo docker push $REPO:$VERSION
+docker build . -t $REPO:$VERSION
+docker push $REPO:$VERSION
 
-sudo docker inspect --format="{{index .RepoDigests 0}}" "$REPO:$VERSION"
+docker inspect --format="{{index .RepoDigests 0}}" "$REPO:$VERSION"
