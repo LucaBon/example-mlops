@@ -10,16 +10,20 @@ sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / 'components' / 'deploy' / 'src'))
 
 
-def make_dataset(n_rows=600, seed=0, shift=0.0):
-    """Synthetic data with the real schema: features separate 3 classes."""
+def make_dataset(n_rows=600, seed=0, shift=0.0, signal=1.0, class_probs=None):
+    """Synthetic data with the real schema: features separate 3 classes.
+
+    ``signal=0`` makes the features pure noise; ``class_probs`` sets the
+    class balance.
+    """
     rng = np.random.default_rng(seed)
-    target = rng.integers(0, 3, n_rows)
+    target = rng.choice(3, n_rows, p=class_probs)
     df = pd.DataFrame({
         'TIMESTAMP': np.arange(n_rows) * 60,
         'DateTime': pd.date_range('2022-01-01', periods=n_rows, freq='min'),
     })
     for i in range(8):
-        df[f'feature_{i}'] = target * (i % 3) + rng.normal(shift, 0.5, n_rows)
+        df[f'feature_{i}'] = signal * target * (i % 3) + rng.normal(shift, 0.5, n_rows)
     df['constant'] = 1.0
     df['target'] = target
     return df

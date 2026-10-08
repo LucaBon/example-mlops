@@ -29,9 +29,10 @@ def test_payload_rejects_missing_model_features():
 
 
 def test_model_feature_names_excludes_dropped_columns(mlflow_store, raw_csv, tmp_path):
-    train_path, test_path = tmp_path / 'train.csv', tmp_path / 'test.csv'
-    preprocess(str(raw_csv), str(train_path), str(test_path))
-    out = train(str(train_path), n_estimators=5)
+    train_path, val_path, test_path = (tmp_path / f'{name}.csv'
+                                       for name in ('train', 'val', 'test'))
+    preprocess(str(raw_csv), str(train_path), str(val_path), str(test_path))
+    out = train(str(train_path), str(val_path), n_estimators=5)
 
     names = model_feature_names(f'runs:/{out.run_id}/model')
     assert names == [f'feature_{i}' for i in range(8)]
