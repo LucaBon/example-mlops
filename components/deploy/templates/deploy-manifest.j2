@@ -1,16 +1,16 @@
-apiVersion: machinelearning.seldon.io/v1alpha2
+apiVersion: machinelearning.seldon.io/v1
 kind: SeldonDeployment
 metadata:
-  name: mlflow
+  name: {{ deployment_name }}
 spec:
-  name: washing_machine
+  name: {{ deployment_name }}
   predictors:
   - componentSpecs:
     - spec:
         containers:
         - name: classifier
-          image: seldonio/mlflowserver:1.14.0-dev
-          imagePullPolicy: Always
+          image: seldonio/mlflowserver:1.14.0
+          imagePullPolicy: IfNotPresent
           livenessProbe:
             initialDelaySeconds: 80
             failureThreshold: 200
@@ -35,5 +35,5 @@ spec:
       modelUri: {{ model_uri }}
       envSecretRefName: seldon-init-container-secret
       name: classifier
-    name: washing_machine-super-model
+    name: default
     replicas: 1

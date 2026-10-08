@@ -1,0 +1,23 @@
+# Lets pipeline steps (running as default-editor in the profile namespace)
+# create and watch SeldonDeployments. Apply with:
+#   kubectl apply -n <namespace> -f k8s/pipeline-runner-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: seldon-deployer
+rules:
+- apiGroups: ["machinelearning.seldon.io"]
+  resources: ["seldondeployments", "seldondeployments/status"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: seldon-deployer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: seldon-deployer
+subjects:
+- kind: ServiceAccount
+  name: default-editor

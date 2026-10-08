@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 REPO="kalpa/washing-machine-deploy-model"
 
 sudo docker build . -t $REPO:$VERSION

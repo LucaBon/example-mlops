@@ -3,13 +3,16 @@ description: deploy model using seldon core
 
 inputs:
   - { name: model_uri, type: String, description: 'MLFlow model artifact URI' }
+  - { name: namespace, type: String, default: 'kalpa-k8', description: 'Target namespace' }
+  - { name: deployment_name, type: String, default: 'washing-machine', description: 'SeldonDeployment name (DNS-1123)' }
 
 implementation:
   container:
-    image: "kalpa/washing-machine-deploy-model:1.0.0"
+    image: "kalpa/washing-machine-deploy-model:1.1.0"
     command: [
       python3,
       src/deploy.py,
-      --model_uri,
-      { inputValue: model_uri }
+      --model_uri, { inputValue: model_uri },
+      --namespace, { inputValue: namespace },
+      --deployment_name, { inputValue: deployment_name }
     ]

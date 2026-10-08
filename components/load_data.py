@@ -1,4 +1,5 @@
-from kfp.components import InputPath, OutputPath
+from kfp.components import OutputPath
+
 
 def get_data_from_dvc(repo_url: str, filename: str, data_path: OutputPath('CSV')):
     from dvc.api import DVCFileSystem

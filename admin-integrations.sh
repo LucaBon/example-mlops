@@ -51,3 +51,6 @@ kubectl get secret mlflow-server-seldon-init-container-s3-credentials --namespac
   | sed "s/namespace: kubeflow/namespace: $USER_NAMESPACE/" \
   | sed 's/name: mlflow-server-seldon-init-container-s3-credentials/name: seldon-init-container-secret/g' \
   | kubectl apply -n $USER_NAMESPACE -f -
+
+# Allow pipeline steps to create SeldonDeployments
+kubectl apply -n $USER_NAMESPACE -f "$(dirname "$0")/k8s/pipeline-runner-rbac.yaml"
