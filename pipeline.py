@@ -30,8 +30,10 @@ MLFLOW_S3_ENDPOINT_URL = 'http://minio.kubeflow.svc.cluster.local:9000'
 # docker-registry secret for ghcr.io, created by admin-integrations.sh
 IMAGE_PULL_SECRET = 'ghcr-pull-secret'
 BASE_IMAGE = 'python:3.9'
-ML_PACKAGES = ['pandas==1.4.2', 'scikit-learn==1.0.2', 'mlflow==1.24.0',
-               'boto3==1.21.32', 'protobuf==3.20.0', 'setuptools<70']
+# numpy and scipy are pinned as in requirements.txt: unpinned, pip installs
+# numpy 2, which pandas 1.4 wheels cannot load
+ML_PACKAGES = ['pandas==1.4.2', 'numpy==1.22.3', 'scipy==1.8.0', 'scikit-learn==1.0.2',
+               'mlflow==1.24.0', 'boto3==1.21.32', 'protobuf==3.20.0', 'setuptools<70']
 
 DEFAULT_ARGUMENTS = {
     'repo_url': 'https://github.com/LucaBon/example-mlops.git',
@@ -52,7 +54,7 @@ def _component(func, name, packages):
 # pathspec is pinned because newer releases break dvc 3.51
 load_data_op = _component(get_data_from_dvc, 'load_data',
                           ['dvc==3.51.2', 'dvc-s3==3.2.0', 'pathspec==0.12.1'])
-preprocess_op = _component(preprocess, 'preprocess', ['pandas==1.4.2'])
+preprocess_op = _component(preprocess, 'preprocess', ['pandas==1.4.2', 'numpy==1.22.3'])
 training_op = _component(train, 'train', ML_PACKAGES)
 evaluate_op = _component(evaluate, 'evaluate', ML_PACKAGES)
 promote_op = _component(promote, 'promote', ML_PACKAGES)
