@@ -79,7 +79,7 @@ def washing_machine_pipeline(
         max_depth: int = 0,
         random_state: int = 42,
         min_accuracy: float = 0.8,
-        namespace: str = 'kalpa-k8',
+        namespace: str = 'kubeflow-user-example-com',
         deployment_name: str = 'washing-machine'):
     load_data_task = load_data_op(repo_url, filename).apply(
         use_aws_secret(secret_name='aws-secret',

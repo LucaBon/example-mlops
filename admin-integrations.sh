@@ -1,6 +1,6 @@
 #!/bin/bash
 
-USER_NAMESPACE=kalpa-k8
+USER_NAMESPACE=kubeflow-user-example-com
 
 #MLflow
 cat <<EOF | kubectl create -n $USER_NAMESPACE -f -

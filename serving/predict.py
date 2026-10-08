@@ -49,7 +49,7 @@ def main(argv=None):
     parser.add_argument('csv', help='CSV with the same feature columns used in training')
     parser.add_argument('--host', default='http://localhost:8080',
                         help='Istio ingress gateway URL')
-    parser.add_argument('--namespace', default='kalpa-k8')
+    parser.add_argument('--namespace', default='kubeflow-user-example-com')
     parser.add_argument('--deployment_name', default='washing-machine')
     parser.add_argument('--rows', type=int, default=10)
     parser.add_argument('--cookie', help='authservice_session cookie, if required')
