@@ -27,7 +27,10 @@ The registry's Production stage only changes after Seldon reports the deployment
 
 Kubeflow with MLflow (`mlflow-server.kubeflow:5000`), MinIO and Seldon Core v1.
 
-1. Set `USER_NAMESPACE` in `admin-integrations.sh` and run it.
+1. Set `USER_NAMESPACE` in `admin-integrations.sh` and run it. To let the cluster pull
+   the private deploy image, export `GHCR_USER` (your GitHub user) and `GHCR_TOKEN`
+   (a token with only the `read:packages` scope) first. The script then creates the
+   `ghcr-pull-secret` that every pipeline pod uses.
 2. Create the `aws-secret` (keys `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
    in the user namespace. It gives the `load_data` step access to the DVC
    remote `s3://mlops-remote-storage`.
@@ -43,8 +46,8 @@ gh auth token | docker login ghcr.io -u <github-user> --password-stdin
 cd components/deploy && ./build_image.sh
 ```
 
-Make the package public on GitHub, or add an `imagePullSecret` for `ghcr.io` in the
-user namespace, so the cluster can pull it. To use another registry, change `REPO` in
+The package is private; pipeline pods pull it with `ghcr-pull-secret` (see
+cluster prerequisites). To use another registry, change `REPO` in
 `build_image.sh` and the image in `components/deploy/component.yaml`.
 
 ## Compile, run, schedule

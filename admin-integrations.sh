@@ -52,5 +52,18 @@ kubectl get secret mlflow-server-seldon-init-container-s3-credentials --namespac
   | sed 's/name: mlflow-server-seldon-init-container-s3-credentials/name: seldon-init-container-secret/g' \
   | kubectl apply -n $USER_NAMESPACE -f -
 
+# Pull secret for the private deploy component image on ghcr.io.
+# GHCR_TOKEN: a GitHub token with the read:packages scope.
+if [ -n "$GHCR_USER" ] && [ -n "$GHCR_TOKEN" ]; then
+  kubectl create secret docker-registry ghcr-pull-secret \
+    --namespace=$USER_NAMESPACE \
+    --docker-server=ghcr.io \
+    --docker-username="$GHCR_USER" \
+    --docker-password="$GHCR_TOKEN" \
+    --dry-run=client -o yaml | kubectl apply -n $USER_NAMESPACE -f -
+else
+  echo "GHCR_USER/GHCR_TOKEN not set: skipping ghcr-pull-secret" >&2
+fi
+
 # Allow pipeline steps to create SeldonDeployments
 kubectl apply -n $USER_NAMESPACE -f "$(dirname "$0")/k8s/pipeline-runner-rbac.yaml"
