@@ -34,7 +34,7 @@ ML_PACKAGES = ['pandas==1.4.2', 'scikit-learn==1.0.2', 'mlflow==1.24.0',
                'boto3==1.21.32', 'protobuf==3.20.0', 'setuptools<70']
 
 DEFAULT_ARGUMENTS = {
-    'repo_url': 'https://github.com/LucaBon/washingmachine-mlops.git',
+    'repo_url': 'https://github.com/LucaBon/example-mlops.git',
     'filename': 'wm_cycles_win60.csv',
 }
 
@@ -94,6 +94,7 @@ def washing_machine_pipeline(
         repo_url: str = DEFAULT_ARGUMENTS['repo_url'],
         filename: str = DEFAULT_ARGUMENTS['filename'],
         dvc_remote: str = 'minio',
+        data_rev: str = '',
         test_size: float = 0.25,
         n_estimators: int = 300,
         max_depth: int = 0,
@@ -113,7 +114,7 @@ def washing_machine_pipeline(
 
     # Credentials for whichever DVC remote is selected: MinIO from the KFP
     # artifact secret, AWS from aws-secret (only needed for dvc_remote=s3)
-    load_data_task = (load_data_op(repo_url, filename, dvc_remote)
+    load_data_task = (load_data_op(repo_url, filename, dvc_remote, data_rev)
                       .apply(use_optional_secret('mlpipeline-minio-artifact', {
                           'accesskey': 'MINIO_ACCESS_KEY_ID',
                           'secretkey': 'MINIO_SECRET_ACCESS_KEY'}))
