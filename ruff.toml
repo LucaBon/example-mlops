@@ -5,4 +5,4 @@ extend-exclude = ["generated"]
 select = ["E", "F", "I"]
 
 [lint.isort]
-known-first-party = ["components", "serving", "deploy", "pipeline", "tests"]
+known-first-party = ["components", "data_prep", "serving", "deploy", "pipeline", "tests"]
